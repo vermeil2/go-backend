@@ -1,0 +1,173 @@
+# docker-compose.yml
+networks:
+  shop-net:
+    driver: bridge
+
+volumes:
+  productdb-data:
+  userdb-data:
+  cartdb-data:
+  orderdb-data:
+
+services:
+  # --- DB 컨테이너들 (MariaDB 10.11) ---
+  product-db:
+    image: mariadb:10.11
+    container_name: product-db
+    restart: always
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: productdb
+      MARIADB_USER: user
+      MARIADB_PASSWORD: pass
+    ports:
+      - "3307:3306"   # 필요 없으면 삭제 가능
+    volumes:
+      - productdb-data:/var/lib/mysql
+      - ./init/product-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb -uuser -ppass -e 'SELECT 1' productdb || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - shop-net
+
+  user-db:
+    image: mariadb:10.11
+    container_name: user-db
+    restart: always
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: userdb
+      MARIADB_USER: user
+      MARIADB_PASSWORD: pass
+    ports:
+      - "3308:3306"   # 필요 없으면 삭제 가능
+    volumes:
+      - userdb-data:/var/lib/mysql
+      # 스키마를 init.sql로 만들려면 아래 줄 해제 후 파일 제공
+      # - ./init/user-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb -uuser -ppass -e 'SELECT 1' userdb || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - shop-net
+
+  cart-db:
+    image: mariadb:10.11
+    container_name: cart-db
+    restart: always
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: cartdb
+      MARIADB_USER: user
+      MARIADB_PASSWORD: pass
+    ports:
+      - "3309:3306"   # 필요 없으면 삭제 가능
+    volumes:
+      - cartdb-data:/var/lib/mysql
+      # - ./init/cart-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb -uuser -ppass -e 'SELECT 1' cartdb || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - shop-net
+
+  order-db:
+    image: mariadb:10.11
+    container_name: order-db
+    restart: always
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: orderdb
+      MARIADB_USER: user
+      MARIADB_PASSWORD: pass
+    ports:
+      - "3310:3306"   # 필요 없으면 삭제 가능
+    volumes:
+      - orderdb-data:/var/lib/mysql
+      # - ./init/order-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb -uuser -ppass -e 'SELECT 1' orderdb || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - shop-net
+
+  # --- Reverse Proxy ---
+  nginx-proxy:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+      - user-service
+      - product-service
+      - cart-service
+      - order-service
+    networks:
+      - shop-net
+
+  # --- Application 서비스들 (모두 8080) ---
+  frontend:
+    image: khg435/shop-frontend:latest
+    container_name: frontend
+    expose:
+      - "80"
+    networks:
+      - shop-net
+
+  user-service:
+    image: khg435/user-service:latest
+    container_name: user-service
+    expose:
+      - "8080"
+    depends_on:
+      user-db:
+        condition: service_healthy
+    networks:
+      - shop-net
+
+  product-service:
+    image: khg435/product-service:latest
+    container_name: product-service
+    expose:
+      - "8080"
+    depends_on:
+      product-db:
+        condition: service_healthy
+    networks:
+      - shop-net
+
+  cart-service:
+    image: khg435/cart-service:latest
+    container_name: cart-service
+    expose:
+      - "8080"
+    environment:
+      - SERVER_SERVLET_CONTEXT_PATH=/api
+    depends_on:
+      cart-db:
+        condition: service_healthy
+    networks:
+      - shop-net
+
+  order-service:
+    image: khg435/order-service:latest
+    container_name: order-service
+    expose:
+      - "8080"
+    depends_on:
+      order-db:
+        condition: service_healthy
+    networks:
+      - shop-net

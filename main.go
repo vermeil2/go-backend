@@ -7,6 +7,7 @@ import (
     "log"
     "net/http"
     "os"
+    "path/filepath"
     "time"
 
     "github.com/docker/docker/api/types/container"
@@ -17,6 +18,7 @@ import (
     "github.com/docker/docker/client"
     "github.com/gorilla/mux"
     "github.com/rs/cors"
+    "fmt"
 )
 
 type errorResponse struct {
@@ -36,6 +38,30 @@ type buildImageRequest struct {
     Dockerfile  string `json:"dockerfile"`      // Dockerfile content
     ContextPath string `json:"context_path"`    // default "." (server-side path)
     Platform    string `json:"platform"`        // optional, e.g., linux/amd64
+}
+
+type composeFileItem struct {
+    Name string `json:"name"`
+    Path string `json:"path"`
+}
+
+type composeFileUploadRequest struct {
+    Name    string `json:"name"`
+    Content string `json:"content"`
+}
+
+type composeRunRequest struct {
+    FilePath string            `json:"file_path"` // absolute or server-relative
+    WorkDir  string            `json:"work_dir"`  // optional; defaults to file dir
+    Env      map[string]string `json:"env"`       // optional
+    Args     []string          `json:"args"`      // optional extra args
+}
+
+type composeScaleRequest struct {
+    FilePath string `json:"file_path"`
+    WorkDir  string `json:"work_dir"`
+    Service  string `json:"service"`
+    Replicas int    `json:"replicas"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -275,6 +301,32 @@ func listImagesHandler(w http.ResponseWriter, r *http.Request) {
     writeJSON(w, http.StatusOK, images)
 }
 
+// --- Compose helpers ---
+func composeBaseDir() (string, error) {
+    base := os.Getenv("COMPOSE_DIR")
+    if base == "" {
+        wd, err := os.Getwd()
+        if err != nil { return "", err }
+        base = filepath.Join(wd, "compose")
+    }
+    if err := os.MkdirAll(base, 0o755); err != nil {
+        return "", err
+    }
+    return base, nil
+}
+
+func safeJoin(base, name string) (string, error) {
+    p := filepath.Join(base, name)
+    rp, err := filepath.Abs(p)
+    if err != nil { return "", err }
+    rb, err := filepath.Abs(base)
+    if err != nil { return "", err }
+    if len(rp) < len(rb) || rp[:len(rb)] != rb {
+        return "", fmt.Errorf("path escapes base")
+    }
+    return rp, nil
+}
+
 func buildImageHandler(w http.ResponseWriter, r *http.Request) {
     var req buildImageRequest
     if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -325,6 +377,99 @@ func buildImageHandler(w http.ResponseWriter, r *http.Request) {
     })
 }
 
+func composeListFilesHandler(w http.ResponseWriter, r *http.Request) {
+    base, err := composeBaseDir()
+    if err != nil { writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()}); return }
+    entries, err := os.ReadDir(base)
+    if err != nil { writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()}); return }
+    items := []composeFileItem{}
+    for _, e := range entries {
+        if e.IsDir() { continue }
+        name := e.Name()
+        if filepath.Ext(name) == ".yml" || filepath.Ext(name) == ".yaml" {
+            p := filepath.Join(base, name)
+            items = append(items, composeFileItem{Name: name, Path: p})
+        }
+    }
+    writeJSON(w, http.StatusOK, items)
+}
+
+func composeUploadFileHandler(w http.ResponseWriter, r *http.Request) {
+    var req composeFileUploadRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid JSON body"}); return
+    }
+    if req.Name == "" || req.Content == "" {
+        writeJSON(w, http.StatusBadRequest, errorResponse{Error: "name and content required"}); return
+    }
+    base, err := composeBaseDir()
+    if err != nil { writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()}); return }
+    dest, err := safeJoin(base, req.Name)
+    if err != nil { writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()}); return }
+    if err := os.WriteFile(dest, []byte(req.Content), 0o644); err != nil {
+        writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()}); return
+    }
+    writeJSON(w, http.StatusOK, map[string]any{"path": dest})
+}
+
+func composeRun(w http.ResponseWriter, subcmd string, req composeRunRequest) {
+    filePath := req.FilePath
+    if filePath == "" {
+        writeJSON(w, http.StatusBadRequest, errorResponse{Error: "file_path required"}); return
+    }
+    workDir := req.WorkDir
+    if workDir == "" { workDir = filepath.Dir(filePath) }
+    args := []string{"compose", "-f", filePath, subcmd}
+    if len(req.Args) > 0 { args = append(args, req.Args...) }
+    cmd := exec.Command("docker", args...)
+    cmd.Dir = workDir
+    if len(req.Env) > 0 {
+        env := os.Environ()
+        for k, v := range req.Env { env = append(env, fmt.Sprintf("%s=%s", k, v)) }
+        cmd.Env = env
+    }
+    out, err := cmd.CombinedOutput()
+    if err != nil {
+        writeJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "output": string(out), "error": err.Error()}); return
+    }
+    writeJSON(w, http.StatusOK, map[string]any{"success": true, "output": string(out)})
+}
+
+func composeUpHandler(w http.ResponseWriter, r *http.Request) {
+    var req composeRunRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil { writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid JSON body"}); return }
+    req.Args = append(req.Args, "-d")
+    composeRun(w, "up", req)
+}
+
+func composeDownHandler(w http.ResponseWriter, r *http.Request) {
+    var req composeRunRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil { writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid JSON body"}); return }
+    composeRun(w, "down", req)
+}
+
+func composePsHandler(w http.ResponseWriter, r *http.Request) {
+    var req composeRunRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil { writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid JSON body"}); return }
+    composeRun(w, "ps", req)
+}
+
+func composeLogsHandler(w http.ResponseWriter, r *http.Request) {
+    var req composeRunRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil { writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid JSON body"}); return }
+    // 기본 tail 200줄
+    if len(req.Args) == 0 { req.Args = []string{"--no-color", "--tail", "200"} }
+    composeRun(w, "logs", req)
+}
+
+func composeScaleHandler(w http.ResponseWriter, r *http.Request) {
+    var req composeScaleRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil { writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid JSON body"}); return }
+    if req.Service == "" || req.Replicas < 0 { writeJSON(w, http.StatusBadRequest, errorResponse{Error: "service and replicas required"}); return }
+    runReq := composeRunRequest{FilePath: req.FilePath, WorkDir: req.WorkDir}
+    runReq.Args = []string{"--no-recreate", "--detach", "--scale", fmt.Sprintf("%s=%d", req.Service, req.Replicas)}
+    composeRun(w, "up", runReq)
+}
 func routes() http.Handler {
     r := mux.NewRouter()
     api := r.PathPrefix("/go").Subrouter()
@@ -336,6 +481,15 @@ func routes() http.Handler {
     api.HandleFunc("/containers/prune", pruneStoppedContainersHandler).Methods(http.MethodPost)
     api.HandleFunc("/images", listImagesHandler).Methods(http.MethodGet)
     api.HandleFunc("/images/build", buildImageHandler).Methods(http.MethodPost)
+
+    // Compose endpoints
+    api.HandleFunc("/compose/files", composeListFilesHandler).Methods(http.MethodGet)
+    api.HandleFunc("/compose/files", composeUploadFileHandler).Methods(http.MethodPost)
+    api.HandleFunc("/compose/up", composeUpHandler).Methods(http.MethodPost)
+    api.HandleFunc("/compose/down", composeDownHandler).Methods(http.MethodPost)
+    api.HandleFunc("/compose/ps", composePsHandler).Methods(http.MethodPost)
+    api.HandleFunc("/compose/logs", composeLogsHandler).Methods(http.MethodPost)
+    api.HandleFunc("/compose/scale", composeScaleHandler).Methods(http.MethodPost)
     return r
 }
 
