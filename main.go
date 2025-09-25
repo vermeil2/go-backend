@@ -91,22 +91,55 @@ func createContainerHandler(w http.ResponseWriter, r *http.Request) {
     ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
     defer cancel()
 
-    // Ensure image exists (pull if missing)
-    pullOpts := imageTypes.PullOptions{}
-    if req.Platform != "" { pullOpts.Platform = req.Platform }
-    rc, err := cli.ImagePull(ctx, req.Image, pullOpts)
-    if err != nil {
-        // Try with library prefix if simple name
-        rc2, secondErr := cli.ImagePull(ctx, "docker.io/library/"+req.Image, pullOpts)
-        if secondErr != nil {
-            writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()})
-            return
+    // 1) 로컬에 이미지가 있는지 먼저 확인 (있으면 pull 스킵)
+    hasLocal := false
+    {
+        args := filters.NewArgs()
+        // reference 필터는 태그 포함 문자열로 매칭됩니다.
+        args.Add("reference", req.Image)
+        imgs, err := cli.ImageList(ctx, imageapi.ListOptions{Filters: args})
+        if err == nil && len(imgs) > 0 {
+            hasLocal = true
         }
-        defer rc2.Close()
-        _, _ = io.Copy(io.Discard, rc2)
-    } else {
-        defer rc.Close()
-        _, _ = io.Copy(io.Discard, rc)
+        // 태그가 생략된 경우 :latest로도 한 번 더 확인
+        if !hasLocal && !containsColon(req.Image) {
+            args2 := filters.NewArgs()
+            args2.Add("reference", req.Image+":latest")
+            imgs2, err2 := cli.ImageList(ctx, imageapi.ListOptions{Filters: args2})
+            if err2 == nil && len(imgs2) > 0 {
+                hasLocal = true
+                req.Image = req.Image + ":latest"
+            }
+        }
+    }
+
+    // 2) 로컬에 없을 때만 pull 시도
+    if !hasLocal {
+        pullOpts := imageTypes.PullOptions{}
+        if req.Platform != "" { pullOpts.Platform = req.Platform }
+        rc, err := cli.ImagePull(ctx, req.Image, pullOpts)
+        if err != nil {
+            // 슬래시가 없는 단순 이름이면 library 프리픽스도 시도
+            if !containsSlash(req.Image) {
+                rc2, secondErr := cli.ImagePull(ctx, "docker.io/library/"+req.Image, pullOpts)
+                if secondErr != nil {
+                    writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()})
+                    return
+                }
+                defer rc2.Close()
+                _, _ = io.Copy(io.Discard, rc2)
+                // 성공적으로 pull했다면, 실제 사용 이미지명을 보정(:latest 자동)
+                if !containsColon(req.Image) {
+                    req.Image = req.Image + ":latest"
+                }
+            } else {
+                writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()})
+                return
+            }
+        } else {
+            defer rc.Close()
+            _, _ = io.Copy(io.Discard, rc)
+        }
     }
 
     resp, err := cli.ContainerCreate(
@@ -122,6 +155,28 @@ func createContainerHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
     writeJSON(w, http.StatusCreated, resp)
+}
+
+// containsColon returns true if image reference contains a tag delimiter ':' (not counting digest '@').
+func containsColon(ref string) bool {
+    for i := 0; i < len(ref); i++ {
+        if ref[i] == ':' {
+            return true
+        }
+        if ref[i] == '@' { // digest case, stop early
+            return false
+        }
+    }
+    return false
+}
+
+func containsSlash(ref string) bool {
+    for i := 0; i < len(ref); i++ {
+        if ref[i] == '/' {
+            return true
+        }
+    }
+    return false
 }
 
 func startContainerHandler(w http.ResponseWriter, r *http.Request) {
