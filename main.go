@@ -244,6 +244,21 @@ func stopContainerHandler(w http.ResponseWriter, r *http.Request) {
     writeJSON(w, http.StatusOK, map[string]string{"status": "stopped", "id": id})
 }
 
+func restartContainerHandler(w http.ResponseWriter, r *http.Request) {
+    id := mux.Vars(r)["id"]
+    cli, err := newDockerClient()
+    if err != nil { writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()}); return }
+    defer cli.Close()
+
+    ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+    defer cancel()
+
+    if err := cli.ContainerRestart(ctx, id, container.StopOptions{Timeout: nil}); err != nil {
+        writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()}); return
+    }
+    writeJSON(w, http.StatusOK, map[string]string{"status": "restarted", "id": id})
+}
+
 func deleteContainerHandler(w http.ResponseWriter, r *http.Request) {
     id := mux.Vars(r)["id"]
     cli, err := newDockerClient()
@@ -263,6 +278,78 @@ func deleteContainerHandler(w http.ResponseWriter, r *http.Request) {
     writeJSON(w, http.StatusOK, map[string]string{"status": "deleted", "id": id})
 }
 
+func inspectContainerHandler(w http.ResponseWriter, r *http.Request) {
+    id := mux.Vars(r)["id"]
+    cli, err := newDockerClient()
+    if err != nil { writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()}); return }
+    defer cli.Close()
+
+    ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+    defer cancel()
+
+    info, err := cli.ContainerInspect(ctx, id)
+    if err != nil { writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()}); return }
+    writeJSON(w, http.StatusOK, info)
+}
+
+func containerLogsHandler(w http.ResponseWriter, r *http.Request) {
+    id := mux.Vars(r)["id"]
+    cli, err := newDockerClient()
+    if err != nil { writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()}); return }
+    defer cli.Close()
+
+    ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+    defer cancel()
+
+    // query: tail, stdout, stderr
+    tail := r.URL.Query().Get("tail")
+    if tail == "" { tail = "200" }
+    showStdout := r.URL.Query().Get("stdout") != "false"
+    showStderr := r.URL.Query().Get("stderr") != "false"
+
+    opts := container.LogsOptions{ShowStdout: showStdout, ShowStderr: showStderr, Tail: tail}
+    rc, err := cli.ContainerLogs(ctx, id, opts)
+    if err != nil { writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()}); return }
+    defer rc.Close()
+    b, _ := io.ReadAll(rc)
+    w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+    w.WriteHeader(http.StatusOK)
+    _, _ = w.Write(b)
+}
+
+type execRequest struct {
+    Cmd []string `json:"cmd"`
+}
+
+func execInContainerHandler(w http.ResponseWriter, r *http.Request) {
+    id := mux.Vars(r)["id"]
+    var req execRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid JSON body"}); return
+    }
+    if len(req.Cmd) == 0 { writeJSON(w, http.StatusBadRequest, errorResponse{Error: "cmd required"}); return }
+
+    cli, err := newDockerClient()
+    if err != nil { writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()}); return }
+    defer cli.Close()
+
+    ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+    defer cancel()
+
+    execCfg := container.ExecOptions{
+        Cmd:          req.Cmd,
+        AttachStdout: true,
+        AttachStderr: true,
+    }
+    execID, err := cli.ContainerExecCreate(ctx, id, execCfg)
+    if err != nil { writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()}); return }
+    attach, err := cli.ContainerExecAttach(ctx, execID.ID, container.ExecStartOptions{})
+    if err != nil { writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()}); return }
+    defer attach.Close()
+
+    out, _ := io.ReadAll(attach.Reader)
+    writeJSON(w, http.StatusOK, map[string]any{"output": string(out)})
+}
 func pruneStoppedContainersHandler(w http.ResponseWriter, r *http.Request) {
     cli, err := newDockerClient()
     if err != nil {
@@ -477,7 +564,11 @@ func routes() http.Handler {
     api.HandleFunc("/containers", createContainerHandler).Methods(http.MethodPost)
     api.HandleFunc("/containers/{id}/start", startContainerHandler).Methods(http.MethodPost)
     api.HandleFunc("/containers/{id}/stop", stopContainerHandler).Methods(http.MethodPost)
+    api.HandleFunc("/containers/{id}/restart", restartContainerHandler).Methods(http.MethodPost)
     api.HandleFunc("/containers/{id}", deleteContainerHandler).Methods(http.MethodDelete)
+    api.HandleFunc("/containers/{id}/inspect", inspectContainerHandler).Methods(http.MethodGet)
+    api.HandleFunc("/containers/{id}/logs", containerLogsHandler).Methods(http.MethodGet)
+    api.HandleFunc("/containers/{id}/exec", execInContainerHandler).Methods(http.MethodPost)
     api.HandleFunc("/containers/prune", pruneStoppedContainersHandler).Methods(http.MethodPost)
     api.HandleFunc("/images", listImagesHandler).Methods(http.MethodGet)
     api.HandleFunc("/images/build", buildImageHandler).Methods(http.MethodPost)
