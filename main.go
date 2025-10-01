@@ -10,6 +10,7 @@ import (
     "path/filepath"
     "time"
 
+    types "github.com/docker/docker/api/types"
     "github.com/docker/docker/api/types/container"
     imageapi "github.com/docker/docker/api/types/image"
     "os/exec"
@@ -350,6 +351,48 @@ func execInContainerHandler(w http.ResponseWriter, r *http.Request) {
     out, _ := io.ReadAll(attach.Reader)
     writeJSON(w, http.StatusOK, map[string]any{"output": string(out)})
 }
+
+func containerStatsHandler(w http.ResponseWriter, r *http.Request) {
+    id := mux.Vars(r)["id"]
+    cli, err := newDockerClient()
+    if err != nil { writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()}); return }
+    defer cli.Close()
+
+    ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+    defer cancel()
+
+    // Stream=false -> one-shot stats
+    rc, err := cli.ContainerStats(ctx, id, false)
+    if err != nil { writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()}); return }
+    defer rc.Body.Close()
+
+    var s types.StatsJSON
+    if err := json.NewDecoder(rc.Body).Decode(&s); err != nil {
+        writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()}); return
+    }
+
+    // Calculate CPU % roughly (Docker CLI style simplified)
+    cpuDelta := float64(s.CPUStats.CPUUsage.TotalUsage - s.PreCPUStats.CPUUsage.TotalUsage)
+    systemDelta := float64(s.CPUStats.SystemUsage - s.PreCPUStats.SystemUsage)
+    cpuPercent := 0.0
+    if systemDelta > 0 && cpuDelta > 0 {
+        cpuPercent = (cpuDelta / systemDelta) * float64(len(s.CPUStats.CPUUsage.PercpuUsage)) * 100.0
+    }
+    memUsage := float64(s.MemoryStats.Usage)
+    memLimit := float64(s.MemoryStats.Limit)
+    memPercent := 0.0
+    if memLimit > 0 { memPercent = (memUsage / memLimit) * 100.0 }
+
+    writeJSON(w, http.StatusOK, map[string]any{
+        "cpu_percent": cpuPercent,
+        "mem_usage": memUsage,
+        "mem_limit": memLimit,
+        "mem_percent": memPercent,
+        "pids": s.PidsStats.Current,
+        "net": s.Networks,
+        "blkio": s.BlkioStats,
+    })
+}
 func pruneStoppedContainersHandler(w http.ResponseWriter, r *http.Request) {
     cli, err := newDockerClient()
     if err != nil {
@@ -569,6 +612,7 @@ func routes() http.Handler {
     api.HandleFunc("/containers/{id}/inspect", inspectContainerHandler).Methods(http.MethodGet)
     api.HandleFunc("/containers/{id}/logs", containerLogsHandler).Methods(http.MethodGet)
     api.HandleFunc("/containers/{id}/exec", execInContainerHandler).Methods(http.MethodPost)
+    api.HandleFunc("/containers/{id}/stats", containerStatsHandler).Methods(http.MethodGet)
     api.HandleFunc("/containers/prune", pruneStoppedContainersHandler).Methods(http.MethodPost)
     api.HandleFunc("/images", listImagesHandler).Methods(http.MethodGet)
     api.HandleFunc("/images/build", buildImageHandler).Methods(http.MethodPost)
