@@ -542,6 +542,36 @@ func composeUploadFileHandler(w http.ResponseWriter, r *http.Request) {
     writeJSON(w, http.StatusOK, map[string]any{"path": dest})
 }
 
+// GET /go/compose/file?path=...
+// Returns { name, content }
+func composeGetFileHandler(w http.ResponseWriter, r *http.Request) {
+    path := r.URL.Query().Get("path")
+    if path == "" {
+        writeJSON(w, http.StatusBadRequest, errorResponse{Error: "path required"}); return
+    }
+    // Ensure the requested path is inside compose base dir
+    base, err := composeBaseDir()
+    if err != nil { writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()}); return }
+    // If user passed absolute path inside base, verify; if only name, join
+    var target string
+    if filepath.IsAbs(path) {
+        target = path
+    } else {
+        target, err = safeJoin(base, path)
+        if err != nil { writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()}); return }
+    }
+    // Check containment
+    absBase, _ := filepath.Abs(base)
+    absTarget, _ := filepath.Abs(target)
+    if len(absTarget) < len(absBase) || absTarget[:len(absBase)] != absBase {
+        writeJSON(w, http.StatusBadRequest, errorResponse{Error: "path escapes base"}); return
+    }
+    b, err := os.ReadFile(absTarget)
+    if err != nil { writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()}); return }
+    name := filepath.Base(absTarget)
+    writeJSON(w, http.StatusOK, map[string]any{"name": name, "content": string(b)})
+}
+
 func composeRun(w http.ResponseWriter, subcmd string, req composeRunRequest) {
     filePath := req.FilePath
     if filePath == "" {
@@ -620,6 +650,7 @@ func routes() http.Handler {
     // Compose endpoints
     api.HandleFunc("/compose/files", composeListFilesHandler).Methods(http.MethodGet)
     api.HandleFunc("/compose/files", composeUploadFileHandler).Methods(http.MethodPost)
+    api.HandleFunc("/compose/file", composeGetFileHandler).Methods(http.MethodGet)
     api.HandleFunc("/compose/up", composeUpHandler).Methods(http.MethodPost)
     api.HandleFunc("/compose/down", composeDownHandler).Methods(http.MethodPost)
     api.HandleFunc("/compose/ps", composePsHandler).Methods(http.MethodPost)
