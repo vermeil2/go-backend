@@ -2,6 +2,8 @@ module go-backend
 
 go 1.24.0
 
+replace go-backend => ./
+
 require (
 	github.com/docker/docker v27.2.1+incompatible
 	github.com/gorilla/mux v1.8.1
@@ -34,5 +36,3 @@ require (
 	golang.org/x/time v0.13.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 )
-
-
