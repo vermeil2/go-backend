@@ -45,5 +45,9 @@ func routes() http.Handler {
 	api.HandleFunc("/volumes/prune", PruneVolumesHandler).Methods(http.MethodPost)
 	api.HandleFunc("/volumes/{name}/browse", BrowseVolumeHandler).Methods(http.MethodGet)
 	
+	// File save endpoints for practice pages
+	api.HandleFunc("/api/save-compose", SaveComposeFileHandler).Methods(http.MethodPost)
+	api.HandleFunc("/api/save-nginx", SaveNginxFileHandler).Methods(http.MethodPost)
+	
 	return r
 }
