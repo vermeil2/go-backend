@@ -31,7 +31,7 @@ services:
       - "3307:3306"
     volumes:
       - productdb-data:/var/lib/mysql
-      # - ./init/product-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./init/product-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mariadb -uuser -ppass -e 'SELECT 1' productdb || exit 1"]
       interval: 10s
@@ -52,7 +52,7 @@ services:
       - "3308:3306"
     volumes:
       - userdb-data:/var/lib/mysql
-      # - ./init/user-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./init/user-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mariadb -uuser -ppass -e 'SELECT 1' userdb || exit 1"]
       interval: 10s
@@ -73,7 +73,7 @@ services:
       - "3309:3306"
     volumes:
       - cartdb-data:/var/lib/mysql
-      # - ./init/cart-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./init/cart-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mariadb -uuser -ppass -e 'SELECT 1' cartdb || exit 1"]
       interval: 10s
@@ -94,7 +94,7 @@ services:
       - "3310:3306"
     volumes:
       - orderdb-data:/var/lib/mysql
-      # - ./init/order-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./init/order-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mariadb -uuser -ppass -e 'SELECT 1' orderdb || exit 1"]
       interval: 10s
@@ -164,8 +164,8 @@ services:
     image: khg435/cart-service:latest
     container_name: cart-service
     expose: ["8080"]
-    # environment:
-    #   - SERVER_SERVLET_CONTEXT_PATH=/api
+    environment:
+      - SERVER_SERVLET_CONTEXT_PATH=/api
     depends_on:
       cart-db:
         condition: service_healthy
