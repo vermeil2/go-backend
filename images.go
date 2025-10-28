@@ -9,6 +9,7 @@ import (
 	"time"
 
 	imageapi "github.com/docker/docker/api/types/image"
+	"github.com/gorilla/mux"
 
 )
 
@@ -79,4 +80,33 @@ WriteJSON(w, http.StatusOK, map[string]any{
 		"output":  string(output),
 		"image":   req.ImageName,
 	})
+}
+
+// DELETE /go/images/{ref}?force=true&pruneChildren=true
+func DeleteImageHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	ref := vars["ref"]
+	if ref == "" {
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: "image ref required"})
+		return
+	}
+	cli, err := NewDockerClient()
+	if err != nil {
+		WriteJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	defer cli.Close()
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	force := r.URL.Query().Get("force") == "true"
+	pruneChildren := r.URL.Query().Get("pruneChildren") == "true"
+
+	_, err = cli.ImageRemove(ctx, ref, imageapi.RemoveOptions{Force: force, PruneChildren: pruneChildren})
+	if err != nil {
+		WriteJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted", "ref": ref})
 }

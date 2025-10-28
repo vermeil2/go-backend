@@ -26,6 +26,7 @@ func routes() http.Handler {
 	// Image endpoints
 	api.HandleFunc("/images", ListImagesHandler).Methods(http.MethodGet)
 	api.HandleFunc("/images/build", BuildImageHandler).Methods(http.MethodPost)
+	api.HandleFunc("/images/{ref}", DeleteImageHandler).Methods(http.MethodDelete)
 
 	// Compose endpoints
 	api.HandleFunc("/compose/files", ComposeListFilesHandler).Methods(http.MethodGet)
