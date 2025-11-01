@@ -39,18 +39,37 @@ func SafeJoin(base, name string) (string, error) {
 func ComposeListFilesHandler(w http.ResponseWriter, r *http.Request) {
 	base, err := ComposeBaseDir()
 	if err != nil { WriteJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()}); return }
-	entries, err := os.ReadDir(base)
-	if err != nil { WriteJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()}); return }
+	
+	recursive := r.URL.Query().Get("recursive") == "true"
+	
 	items := []ComposeFileItem{}
-	for _, e := range entries {
-		if e.IsDir() { continue }
-		name := e.Name()
-		if filepath.Ext(name) == ".yml" || filepath.Ext(name) == ".yaml" {
-			p := filepath.Join(base, name)
-			items = append(items, ComposeFileItem{Name: name, Path: p})
+	var scan func(string) error
+	scan = func(dir string) error {
+		entries, err := os.ReadDir(dir)
+		if err != nil { return err }
+		for _, e := range entries {
+			name := e.Name()
+			fullPath := filepath.Join(dir, name)
+			relPath, _ := filepath.Rel(base, fullPath)
+			
+			if e.IsDir() {
+				if recursive {
+					if err := scan(fullPath); err != nil {
+						return err
+					}
+				}
+				continue
+			}
+			
+			items = append(items, ComposeFileItem{Name: relPath, Path: fullPath})
 		}
+		return nil
 	}
-WriteJSON(w, http.StatusOK, items)
+	if err := scan(base); err != nil {
+		WriteJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	WriteJSON(w, http.StatusOK, items)
 }
 
 func ComposeUploadFileHandler(w http.ResponseWriter, r *http.Request) {

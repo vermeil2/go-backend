@@ -29,9 +29,9 @@ func routes() http.Handler {
 	api.HandleFunc("/images/{ref}", DeleteImageHandler).Methods(http.MethodDelete)
 
 	// Compose endpoints
-	api.HandleFunc("/compose/files", ComposeListFilesHandler).Methods(http.MethodGet)
+	api.HandleFunc("/compose/files", ComposeListFilesHandler).Methods(http.MethodGet) // ?recursive=true for all files
 	api.HandleFunc("/compose/files", ComposeUploadFileHandler).Methods(http.MethodPost)
-	api.HandleFunc("/compose/file", ComposeGetFileHandler).Methods(http.MethodGet)
+	api.HandleFunc("/compose/file", ComposeGetFileHandler).Methods(http.MethodGet) // ?path=...
 	api.HandleFunc("/compose/up", ComposeUpHandler).Methods(http.MethodPost)
 	api.HandleFunc("/compose/down", ComposeDownHandler).Methods(http.MethodPost)
 	api.HandleFunc("/compose/ps", ComposePsHandler).Methods(http.MethodPost)
