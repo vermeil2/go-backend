@@ -9,10 +9,9 @@ import (
 
 	dockerTypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
-	imageapi "github.com/docker/docker/api/types/image"
-	imageTypes "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/client"
+	imageTypes "github.com/docker/docker/api/types/image"
+	imageapi "github.com/docker/docker/api/types/image"
 	"github.com/gorilla/mux"
 
 	"go-backend/types"
@@ -86,7 +85,9 @@ func CreateContainerHandler(w http.ResponseWriter, r *http.Request) {
 	// 2) 로컬에 없을 때만 pull 시도
 	if !hasLocal {
 		pullOpts := imageTypes.PullOptions{}
-		if req.Platform != "" { pullOpts.Platform = req.Platform }
+		if req.Platform != "" {
+			pullOpts.Platform = req.Platform
+		}
 		rc, err := cli.ImagePull(ctx, req.Image, pullOpts)
 		if err != nil {
 			// 슬래시가 없는 단순 이름이면 library 프리픽스도 시도
@@ -169,14 +170,18 @@ func StopContainerHandler(w http.ResponseWriter, r *http.Request) {
 func RestartContainerHandler(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	cli, err := utils.NewDockerClient()
-	if err != nil { utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()}); return }
+	if err != nil {
+		utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()})
+		return
+	}
 	defer cli.Close()
 
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 
 	if err := cli.ContainerRestart(ctx, id, container.StopOptions{Timeout: nil}); err != nil {
-		utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()}); return
+		utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()})
+		return
 	}
 	utils.WriteJSON(w, http.StatusOK, map[string]string{"status": "restarted", "id": id})
 }
@@ -203,21 +208,30 @@ func DeleteContainerHandler(w http.ResponseWriter, r *http.Request) {
 func InspectContainerHandler(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	cli, err := utils.NewDockerClient()
-	if err != nil { utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()}); return }
+	if err != nil {
+		utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()})
+		return
+	}
 	defer cli.Close()
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
 	info, err := cli.ContainerInspect(ctx, id)
-	if err != nil { utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()}); return }
+	if err != nil {
+		utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()})
+		return
+	}
 	utils.WriteJSON(w, http.StatusOK, info)
 }
 
 func ContainerLogsHandler(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	cli, err := utils.NewDockerClient()
-	if err != nil { utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()}); return }
+	if err != nil {
+		utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()})
+		return
+	}
 	defer cli.Close()
 
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
@@ -225,13 +239,18 @@ func ContainerLogsHandler(w http.ResponseWriter, r *http.Request) {
 
 	// query: tail, stdout, stderr
 	tail := r.URL.Query().Get("tail")
-	if tail == "" { tail = "200" }
+	if tail == "" {
+		tail = "200"
+	}
 	showStdout := r.URL.Query().Get("stdout") != "false"
 	showStderr := r.URL.Query().Get("stderr") != "false"
 
 	opts := container.LogsOptions{ShowStdout: showStdout, ShowStderr: showStderr, Tail: tail}
 	rc, err := cli.ContainerLogs(ctx, id, opts)
-	if err != nil { utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()}); return }
+	if err != nil {
+		utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()})
+		return
+	}
 	defer rc.Close()
 	b, _ := io.ReadAll(rc)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -243,12 +262,19 @@ func ExecInContainerHandler(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	var req types.ExecRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.WriteJSON(w, http.StatusBadRequest, types.ErrorResponse{Error: "invalid JSON body"}); return
+		utils.WriteJSON(w, http.StatusBadRequest, types.ErrorResponse{Error: "invalid JSON body"})
+		return
 	}
-	if len(req.Cmd) == 0 { utils.WriteJSON(w, http.StatusBadRequest, types.ErrorResponse{Error: "cmd required"}); return }
+	if len(req.Cmd) == 0 {
+		utils.WriteJSON(w, http.StatusBadRequest, types.ErrorResponse{Error: "cmd required"})
+		return
+	}
 
 	cli, err := utils.NewDockerClient()
-	if err != nil { utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()}); return }
+	if err != nil {
+		utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()})
+		return
+	}
 	defer cli.Close()
 
 	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
@@ -260,9 +286,15 @@ func ExecInContainerHandler(w http.ResponseWriter, r *http.Request) {
 		AttachStderr: true,
 	}
 	execID, err := cli.ContainerExecCreate(ctx, id, execCfg)
-	if err != nil { utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()}); return }
+	if err != nil {
+		utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()})
+		return
+	}
 	attach, err := cli.ContainerExecAttach(ctx, execID.ID, container.ExecStartOptions{})
-	if err != nil { utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()}); return }
+	if err != nil {
+		utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()})
+		return
+	}
 	defer attach.Close()
 
 	out, _ := io.ReadAll(attach.Reader)
@@ -272,7 +304,10 @@ func ExecInContainerHandler(w http.ResponseWriter, r *http.Request) {
 func ContainerStatsHandler(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	cli, err := utils.NewDockerClient()
-	if err != nil { utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()}); return }
+	if err != nil {
+		utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()})
+		return
+	}
 	defer cli.Close()
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -280,12 +315,16 @@ func ContainerStatsHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Stream=false -> one-shot stats
 	rc, err := cli.ContainerStats(ctx, id, false)
-	if err != nil { utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()}); return }
+	if err != nil {
+		utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()})
+		return
+	}
 	defer rc.Body.Close()
 
 	var s dockerTypes.StatsJSON
 	if err := json.NewDecoder(rc.Body).Decode(&s); err != nil {
-		utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()}); return
+		utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: err.Error()})
+		return
 	}
 
 	// Calculate CPU % roughly (Docker CLI style simplified)
@@ -298,16 +337,18 @@ func ContainerStatsHandler(w http.ResponseWriter, r *http.Request) {
 	memUsage := float64(s.MemoryStats.Usage)
 	memLimit := float64(s.MemoryStats.Limit)
 	memPercent := 0.0
-	if memLimit > 0 { memPercent = (memUsage / memLimit) * 100.0 }
+	if memLimit > 0 {
+		memPercent = (memUsage / memLimit) * 100.0
+	}
 
 	utils.WriteJSON(w, http.StatusOK, map[string]any{
 		"cpu_percent": cpuPercent,
-		"mem_usage": memUsage,
-		"mem_limit": memLimit,
+		"mem_usage":   memUsage,
+		"mem_limit":   memLimit,
 		"mem_percent": memPercent,
-		"pids": s.PidsStats.Current,
-		"net": s.Networks,
-		"blkio": s.BlkioStats,
+		"pids":        s.PidsStats.Current,
+		"net":         s.Networks,
+		"blkio":       s.BlkioStats,
 	})
 }
 

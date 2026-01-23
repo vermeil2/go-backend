@@ -18,6 +18,31 @@ go run .
 
 프론트엔드가 `http://localhost:3000`에서 실행 중이라면 `frontend/src/setupProxy.js`가 `/go` 경로를 `http://localhost:8081`로 프록시합니다.
 
+## 환경 변수
+
+### 백엔드 서버 (main.go)
+- `PORT`: 서버 포트 (기본값: `8081`)
+- `CORS_ORIGINS`: CORS 허용 오리진 (쉼표로 구분, 기본값: `http://localhost:3000,http://127.0.0.1:3000`)
+
+### Docker Compose (compose/docker-compose.yml)
+`compose/` 디렉토리에 `.env` 파일을 생성하여 다음 변수들을 설정할 수 있습니다:
+- `MARIADB_ROOT_PASSWORD`: MariaDB root 비밀번호 (기본값: `root`)
+- `MARIADB_PASSWORD`: MariaDB 사용자 비밀번호 (기본값: `pass`)
+- `FRONTEND_IMAGE`: 프론트엔드 이미지 (기본값: `khg435/shop-frontend:latest`)
+- `USER_SERVICE_IMAGE`: 사용자 서비스 이미지 (기본값: `khg435/user-service:latest`)
+- `PRODUCT_SERVICE_IMAGE`: 상품 서비스 이미지 (기본값: `khg435/product-service:latest`)
+- `CART_SERVICE_IMAGE`: 장바구니 서비스 이미지 (기본값: `khg435/cart-service:latest`)
+- `ORDER_SERVICE_IMAGE`: 주문 서비스 이미지 (기본값: `khg435/order-service:latest`)
+
+예시:
+```bash
+# compose/.env 파일 생성
+cp compose/env.example compose/.env
+# compose/.env 파일을 편집하여 실제 값 설정
+```
+
+**주의**: `.env` 파일은 `.gitignore`에 포함되어 있어 Git에 커밋되지 않습니다. 실제 비밀번호나 개인 이미지를 사용하는 경우 반드시 `.env` 파일을 사용하세요.
+
 ## 엔드포인트
 
 - GET `/go/containers?all=true` — 컨테이너 목록 조회 (중지 포함하려면 `all=true`)

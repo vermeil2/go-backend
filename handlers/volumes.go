@@ -12,9 +12,8 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/client"
-	"github.com/gorilla/mux"
 	volumeapi "github.com/docker/docker/api/types/volume"
+	"github.com/gorilla/mux"
 
 	"go-backend/types"
 	"go-backend/utils"
@@ -135,7 +134,7 @@ func BrowseVolumeHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Use docker CLI directly for simplicity
 	cmd := exec.Command("docker", "run", "--rm", "-v", fmt.Sprintf("%s:/volume", volumeName), "alpine:latest", "ls", "-la", fmt.Sprintf("/volume%s", path))
-	
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Printf("Docker command failed: %v, output: %s", err, string(output))
@@ -148,7 +147,7 @@ func BrowseVolumeHandler(w http.ResponseWriter, r *http.Request) {
 	// Parse ls output
 	files := ParseLsOutput(string(output), path)
 	log.Printf("Parsed %d files", len(files))
-	
+
 	utils.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"path":  path,
 		"files": files,
@@ -157,41 +156,41 @@ func BrowseVolumeHandler(w http.ResponseWriter, r *http.Request) {
 
 func ParseLsOutput(output, currentPath string) []types.VolumeFileInfo {
 	log.Printf("Parsing ls output: %s", output)
-	
+
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	var files []types.VolumeFileInfo
-	
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.Contains(line, "total") {
 			continue
 		}
-		
+
 		// Parse ls -la output format
 		parts := strings.Fields(line)
 		if len(parts) < 9 {
 			log.Printf("Skipping line with insufficient parts: %s", line)
 			continue
 		}
-		
+
 		permissions := parts[0]
 		sizeStr := parts[4]
 		modTimeStr := strings.Join(parts[5:8], " ")
 		name := strings.Join(parts[8:], " ")
-		
+
 		// Skip . and .. entries
 		if name == "." || name == ".." {
 			continue
 		}
-		
+
 		size, err := strconv.ParseInt(sizeStr, 10, 64)
 		if err != nil {
 			log.Printf("Failed to parse size %s: %v", sizeStr, err)
 			size = 0
 		}
-		
+
 		isDir := strings.HasPrefix(permissions, "d")
-		
+
 		// Parse modification time
 		modTime, err := time.Parse("Jan 2 15:04", modTimeStr)
 		if err != nil {
@@ -200,14 +199,14 @@ func ParseLsOutput(output, currentPath string) []types.VolumeFileInfo {
 		} else {
 			modTime = modTime.AddDate(time.Now().Year(), 0, 0) // Add current year
 		}
-		
+
 		filePath := currentPath
 		if filePath == "/" {
 			filePath = "/" + name
 		} else {
 			filePath = filePath + "/" + name
 		}
-		
+
 		fileInfo := types.VolumeFileInfo{
 			Name:        name,
 			Path:        filePath,
@@ -217,11 +216,11 @@ func ParseLsOutput(output, currentPath string) []types.VolumeFileInfo {
 			ModTime:     modTime,
 			Permissions: permissions,
 		}
-		
+
 		log.Printf("Parsed file: %+v", fileInfo)
 		files = append(files, fileInfo)
 	}
-	
+
 	log.Printf("Total parsed files: %d", len(files))
 	return files
 }

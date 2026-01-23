@@ -3,11 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"go-backend/types"
+	"go-backend/utils"
 )
 
 type SaveFileRequest struct {
@@ -18,7 +20,7 @@ type SaveFileRequest struct {
 func SaveComposeFileHandler(w http.ResponseWriter, r *http.Request) {
 	var req SaveFileRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: "Invalid request body"})
+		utils.WriteJSON(w, http.StatusBadRequest, types.ErrorResponse{Error: "Invalid request body"})
 		return
 	}
 
@@ -26,7 +28,7 @@ func SaveComposeFileHandler(w http.ResponseWriter, r *http.Request) {
 	if req.FileName == "" {
 		req.FileName = "docker-compose.yml"
 	}
-	
+
 	// 확장자 추가 (없으면 .yml 추가)
 	if !strings.HasSuffix(req.FileName, ".yml") && !strings.HasSuffix(req.FileName, ".yaml") {
 		req.FileName += ".yml"
@@ -35,18 +37,18 @@ func SaveComposeFileHandler(w http.ResponseWriter, r *http.Request) {
 	// compose 디렉토리 경로
 	composeDir := "compose"
 	if err := os.MkdirAll(composeDir, 0755); err != nil {
-		WriteJSON(w, http.StatusInternalServerError, ErrorResponse{Error: fmt.Sprintf("Failed to create directory: %v", err)})
+		utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: fmt.Sprintf("Failed to create directory: %v", err)})
 		return
 	}
 
 	// 파일 저장
 	filePath := filepath.Join(composeDir, req.FileName)
 	if err := os.WriteFile(filePath, []byte(req.Content), 0644); err != nil {
-		WriteJSON(w, http.StatusInternalServerError, ErrorResponse{Error: fmt.Sprintf("Failed to save file: %v", err)})
+		utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: fmt.Sprintf("Failed to save file: %v", err)})
 		return
 	}
 
-	WriteJSON(w, http.StatusOK, map[string]string{
+	utils.WriteJSON(w, http.StatusOK, map[string]string{
 		"message": fmt.Sprintf("File saved successfully: %s", req.FileName),
 		"path":    filePath,
 	})
@@ -55,7 +57,7 @@ func SaveComposeFileHandler(w http.ResponseWriter, r *http.Request) {
 func SaveNginxFileHandler(w http.ResponseWriter, r *http.Request) {
 	var req SaveFileRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: "Invalid request body"})
+		utils.WriteJSON(w, http.StatusBadRequest, types.ErrorResponse{Error: "Invalid request body"})
 		return
 	}
 
@@ -63,7 +65,7 @@ func SaveNginxFileHandler(w http.ResponseWriter, r *http.Request) {
 	if req.FileName == "" {
 		req.FileName = "nginx.conf"
 	}
-	
+
 	// 확장자 추가 (없으면 .conf 추가)
 	if !strings.HasSuffix(req.FileName, ".conf") {
 		req.FileName += ".conf"
@@ -72,18 +74,18 @@ func SaveNginxFileHandler(w http.ResponseWriter, r *http.Request) {
 	// compose 디렉토리 경로 (nginx도 compose 폴더에 저장)
 	composeDir := "compose"
 	if err := os.MkdirAll(composeDir, 0755); err != nil {
-		WriteJSON(w, http.StatusInternalServerError, ErrorResponse{Error: fmt.Sprintf("Failed to create directory: %v", err)})
+		utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: fmt.Sprintf("Failed to create directory: %v", err)})
 		return
 	}
 
 	// 파일 저장
 	filePath := filepath.Join(composeDir, req.FileName)
 	if err := os.WriteFile(filePath, []byte(req.Content), 0644); err != nil {
-		WriteJSON(w, http.StatusInternalServerError, ErrorResponse{Error: fmt.Sprintf("Failed to save file: %v", err)})
+		utils.WriteJSON(w, http.StatusInternalServerError, types.ErrorResponse{Error: fmt.Sprintf("Failed to save file: %v", err)})
 		return
 	}
 
-	WriteJSON(w, http.StatusOK, map[string]string{
+	utils.WriteJSON(w, http.StatusOK, map[string]string{
 		"message": fmt.Sprintf("File saved successfully: %s", req.FileName),
 		"path":    filePath,
 	})

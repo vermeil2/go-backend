@@ -9,7 +9,6 @@ import (
 	"time"
 
 	imageapi "github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/client"
 
 	"go-backend/types"
 	"go-backend/utils"
